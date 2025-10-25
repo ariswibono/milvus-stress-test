@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -76,14 +77,29 @@ func main() {
 	totalStartTime := time.Now()
 	ctx := context.Background()
 
+	// Variables to track metrics for summary table
+	var (
+		connectionTime time.Duration
+		insertionTime  time.Duration
+		flushTime      time.Duration
+		indexTime      time.Duration
+		loadTime       time.Duration
+		searchTime     time.Duration
+		cleanupTime    time.Duration
+		insertsPerSec  float64
+		searchesPerSec float64
+	)
+
 	// 1. Connect to Milvus
 	fmt.Println("\n--- Step 1: Connect to Milvus ---")
 	fmt.Printf("Attempting to connect to Milvus at %s...\n", *milvusAddr)
+	connectStart := time.Now()
 	milvusClient, err := client.NewClient(ctx, client.Config{Address: *milvusAddr})
 	if err != nil {
 		log.Fatalf("Failed to connect to Milvus: %v", err)
 	}
 	defer milvusClient.Close()
+	connectionTime = time.Since(connectStart)
 	fmt.Println("✅ Connected to Milvus successfully!")
 
 	// 2. Clean up previous runs
@@ -150,17 +166,19 @@ func main() {
 	}
 
 	wg.Wait()
-	insertionDuration := time.Since(insertionStartTime)
-	insertsPerSecond := float64(totalInserts) / insertionDuration.Seconds()
+	insertionTime = time.Since(insertionStartTime)
+	insertsPerSec = float64(totalInserts) / insertionTime.Seconds()
 
-	fmt.Printf("✅ All goroutines finished inserting data in %s.\n", insertionDuration)
-	fmt.Printf("   -> Throughput: %.2f inserts/second\n", insertsPerSecond)
+	fmt.Printf("✅ All goroutines finished inserting data in %s.\n", insertionTime)
+	fmt.Printf("   -> Throughput: %.2f inserts/second\n", insertsPerSec)
 
 	// Flush the collection
 	fmt.Println("\nFlushing collection to seal segments...")
+	flushStart := time.Now()
 	if err := milvusClient.Flush(ctx, collectionName, false); err != nil {
 		log.Fatalf("Failed to flush collection: %v", err)
 	}
+	flushTime = time.Since(flushStart)
 	fmt.Println("✅ Data flushed successfully.")
 
 	// 5. Create an index
@@ -171,7 +189,8 @@ func main() {
 	if err := milvusClient.CreateIndex(ctx, collectionName, embeddingField, index, false); err != nil {
 		log.Fatalf("Failed to create index: %v", err)
 	}
-	fmt.Printf("✅ Index created successfully in %s.\n", time.Since(indexStartTime))
+	indexTime = time.Since(indexStartTime)
+	fmt.Printf("✅ Index created successfully in %s.\n", indexTime)
 
 	// 6. Load the collection
 	fmt.Println("\n--- Step 6: Load collection into memory ---")
@@ -179,7 +198,8 @@ func main() {
 	if err := milvusClient.LoadCollection(ctx, collectionName, false); err != nil {
 		log.Fatalf("Failed to load collection: %v", err)
 	}
-	fmt.Printf("✅ Collection loaded successfully in %s.\n", time.Since(loadStartTime))
+	loadTime = time.Since(loadStartTime)
+	fmt.Printf("✅ Collection loaded successfully in %s.\n", loadTime)
 
 	// 7. Perform concurrent searches
 	fmt.Printf("\n--- Step 7: Perform %d concurrent searches ---\n", numConcurrentGoroutines)
@@ -207,27 +227,56 @@ func main() {
 		}(i)
 	}
 	searchWg.Wait()
-	searchDuration := time.Since(searchStartTime)
-	searchesPerSecond := float64(numConcurrentGoroutines) / searchDuration.Seconds()
+	searchTime = time.Since(searchStartTime)
+	searchesPerSec = float64(numConcurrentGoroutines) / searchTime.Seconds()
 
-	fmt.Printf("✅ All search goroutines finished in %s.\n", searchDuration)
-	fmt.Printf("   -> Throughput: %.2f searches/second\n", searchesPerSecond)
+	fmt.Printf("✅ All search goroutines finished in %s.\n", searchTime)
+	fmt.Printf("   -> Throughput: %.2f searches/second\n", searchesPerSec)
 
 	// 8. Clean up
 	fmt.Printf("\n--- Step 8: Clean up by dropping collection '%s' ---\n", collectionName)
+	cleanupStart := time.Now()
 	if err := milvusClient.DropCollection(ctx, collectionName); err != nil {
 		log.Fatalf("Failed to drop collection: %v", err)
 	}
+	cleanupTime = time.Since(cleanupStart)
 	fmt.Println("✅ Cleanup successful!")
 
-	// --- Final Summary ---
+	// --- Final Summary Table ---
 	totalDuration := time.Since(totalStartTime)
 	totalVectors := totalInserts
 	totalDataMB := float64(totalVectors*embeddingDim*4) / (1024 * 1024) // 4 bytes per float32
 
-	fmt.Println("\n--- Simulation Summary ---")
-	fmt.Printf("Total Elapsed Time: %s\n", totalDuration)
-	fmt.Printf("Total Vectors Inserted: %d\n", totalVectors)
-	fmt.Printf("Total Data Inserted: %.2f MB\n", totalDataMB)
-	fmt.Println("--------------------------")
+	fmt.Println("\n" + strings.Repeat("=", 80))
+	fmt.Println("                           PERFORMANCE SUMMARY TABLE")
+	fmt.Println(strings.Repeat("=", 80))
+
+	// Configuration section
+	fmt.Printf("│ %-25s │ %-50s │\n", "Configuration", "Value")
+	fmt.Println("├" + strings.Repeat("─", 27) + "┼" + strings.Repeat("─", 52) + "┤")
+	fmt.Printf("│ %-25s │ %-50s │\n", "Traffic Level", trafficLevel)
+	fmt.Printf("│ %-25s │ %-50s │\n", "Milvus Address", *milvusAddr)
+	fmt.Printf("│ %-25s │ %-50d │\n", "Concurrent Workers", numConcurrentGoroutines)
+	fmt.Printf("│ %-25s │ %-50d │\n", "Batch Size", batchSize)
+	fmt.Printf("│ %-25s │ %-50d │\n", "Batches per Worker", numBatchesPerGoroutine)
+	fmt.Printf("│ %-25s │ %-50d │\n", "Total Vectors", totalVectors)
+	fmt.Printf("│ %-25s │ %-50.2f MB │\n", "Total Data Size", totalDataMB)
+
+	fmt.Println("├" + strings.Repeat("─", 27) + "┼" + strings.Repeat("─", 52) + "┤")
+
+	// Performance metrics section
+	fmt.Printf("│ %-25s │ %-50s │\n", "Performance Metrics", "Value")
+	fmt.Println("├" + strings.Repeat("─", 27) + "┼" + strings.Repeat("─", 52) + "┤")
+	fmt.Printf("│ %-25s │ %-50s │\n", "Total Elapsed Time", totalDuration.String())
+	fmt.Printf("│ %-25s │ %-50s │\n", "Connection Time", connectionTime.String())
+	fmt.Printf("│ %-25s │ %-50s │\n", "Data Insertion Time", insertionTime.String())
+	fmt.Printf("│ %-25s │ %-50.2f │\n", "Insert Throughput", insertsPerSec)
+	fmt.Printf("│ %-25s │ %-50s │\n", "Flush Time", flushTime.String())
+	fmt.Printf("│ %-25s │ %-50s │\n", "Index Creation Time", indexTime.String())
+	fmt.Printf("│ %-25s │ %-50s │\n", "Collection Load Time", loadTime.String())
+	fmt.Printf("│ %-25s │ %-50s │\n", "Search Execution Time", searchTime.String())
+	fmt.Printf("│ %-25s │ %-50.2f │\n", "Search Throughput", searchesPerSec)
+	fmt.Printf("│ %-25s │ %-50s │\n", "Cleanup Time", cleanupTime.String())
+
+	fmt.Println(strings.Repeat("=", 80))
 }
