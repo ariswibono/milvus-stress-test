@@ -55,12 +55,36 @@ go run main.go
 
 ### Load Intensity Levels
 
-| Level | Workers | Batch Size | Use Case |
-|-------|---------|------------|----------|
-| `low` | 5 | 500 | Development, baseline testing |
-| `medium` | 20 | 2000 | Production simulation |
-| `high` | 50 | 5000 | Peak load testing |
-| `extreme` | 100 | 10000 | Stress testing, breaking points |
+| Level | Workers | Batch Size | Real-World Equivalent | Use Case |
+|-------|---------|------------|----------------------|----------|
+| `low` | 5 | 500 | Small startup, development environment | Development, baseline testing |
+| `medium` | 20 | 2000 | Mid-size application, typical production | Production simulation, normal operations |
+| `high` | 50 | 5000 | Large enterprise, high-traffic application | Peak load testing, traffic spikes |
+| `extreme` | 100 | 10000 | Massive scale, Black Friday traffic | Stress testing, breaking points |
+
+### What These Levels Mean
+
+**`low`** - **Development/Startup Scale**
+- Similar to: Small startup with < 1000 users
+- Typical throughput: 2,500-5,000 operations/second
+- Use for: Development testing, baseline establishment
+
+**`medium`** - **Standard Production Scale**  
+- Similar to: Mid-size SaaS application with 10K-100K users
+- Typical throughput: 40,000-80,000 operations/second
+- Use for: Normal production load simulation
+
+**`high`** - **Enterprise Scale**
+- Similar to: Large enterprise with 100K+ users, e-commerce platform
+- Typical throughput: 250,000-500,000 operations/second  
+- Use for: Peak traffic testing, enterprise workloads
+
+**`extreme`** - **Massive Scale**
+- Similar to: Black Friday traffic, social media platforms, global applications
+- Typical throughput: 1,000,000+ operations/second
+- Use for: Finding absolute limits, stress testing
+
+> **Note**: These levels are relative benchmarks. Actual performance depends on your hardware, Milvus configuration, and data characteristics. Use them as starting points and adjust based on your specific requirements.
 
 ## 🏭 Production-Ready Testing
 
